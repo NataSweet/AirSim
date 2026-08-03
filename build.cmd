@@ -99,7 +99,10 @@ REM //---------- Build rpclib ------------
 ECHO Starting cmake to build rpclib...
 IF NOT EXIST external\rpclib\%RPC_VERSION_FOLDER%\build mkdir external\rpclib\%RPC_VERSION_FOLDER%\build
 cd external\rpclib\%RPC_VERSION_FOLDER%\build
-cmake -G"Visual Studio 17 2022" ..
+set "CMAKE_GENERATOR=Visual Studio 17 2022"
+where ninja > nul 2>&1
+if not ERRORLEVEL 1 set "CMAKE_GENERATOR=Ninja Multi-Config"
+cmake -G"%CMAKE_GENERATOR%" ..
 
 if "%buildMode%" == "" (
 cmake --build . 
@@ -163,11 +166,12 @@ IF NOT EXIST Unreal\Plugins\AirSim\Content\VehicleAdv\SUV\v1.2.0 (
 
 REM //---------- get Eigen library ----------
 IF NOT EXIST AirLib\deps mkdir AirLib\deps
-IF NOT EXIST AirLib\deps\eigen3 (
+IF NOT EXIST AirLib\deps\eigen3\.airsim-eigen-3.4.1r (
+    IF EXIST AirLib\deps\eigen3 rmdir /S /Q AirLib\deps\eigen3
     if "%PWSHV7%" == "" (
-        %powershell% -command "& { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; iwr https://gitlab.com/libeigen/eigen/-/archive/3.3.7/eigen-3.3.7.zip -OutFile eigen3.zip }"
+        %powershell% -command "& { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; iwr https://github.com/WouterJansen/eigen/archive/refs/tags/3.4.1r.zip -OutFile eigen3.zip }"
     ) else (
-        %powershell% -command "iwr https://gitlab.com/libeigen/eigen/-/archive/3.3.7/eigen-3.3.7.zip -OutFile eigen3.zip"
+        %powershell% -command "iwr https://github.com/WouterJansen/eigen/archive/refs/tags/3.4.1r.zip -OutFile eigen3.zip"
     )
     %powershell% -command "Expand-Archive -Path eigen3.zip -DestinationPath AirLib\deps"
     %powershell% -command "Move-Item -Path AirLib\deps\eigen* -Destination AirLib\deps\del_eigen"
@@ -176,18 +180,19 @@ IF NOT EXIST AirLib\deps\eigen3 (
     move AirLib\deps\del_eigen\Eigen AirLib\deps\eigen3\Eigen
     rmdir /S /Q AirLib\deps\del_eigen
     del eigen3.zip
+    type nul > AirLib\deps\eigen3\.airsim-eigen-3.4.1r
 )
 IF NOT EXIST AirLib\deps\eigen3 goto :buildfailed
 
 
 REM //---------- now we have all dependencies to compile AirSim.sln which will also compile MavLinkCom ----------
 if "%buildMode%" == "" (
-msbuild -maxcpucount:12 /p:Platform=x64 /p:Configuration=Debug AirSim.sln
+msbuild -maxcpucount:12 /p:Platform=x64 /p:Configuration=Debug /p:UseEnv=true AirSim.sln
 if ERRORLEVEL 1 goto :buildfailed
-msbuild -maxcpucount:12 /p:Platform=x64 /p:Configuration=Release AirSim.sln 
+msbuild -maxcpucount:12 /p:Platform=x64 /p:Configuration=Release /p:UseEnv=true AirSim.sln
 if ERRORLEVEL 1 goto :buildfailed
 ) else (
-msbuild -maxcpucount:12 /p:Platform=x64 /p:Configuration=%buildMode% AirSim.sln
+msbuild -maxcpucount:12 /p:Platform=x64 /p:Configuration=%buildMode% /p:UseEnv=true AirSim.sln
 if ERRORLEVEL 1 goto :buildfailed
 )
 

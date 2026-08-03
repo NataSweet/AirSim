@@ -229,7 +229,7 @@ msr::airlib::RCData PawnSimApi::getRCData() const
 
 void PawnSimApi::displayCollisionEffect(FVector hit_location, const FHitResult& hit)
 {
-    if (params_.collision_display_template != nullptr && Utils::isDefinitelyLessThan(hit.ImpactNormal.Z, 0.0f)) {
+    if (params_.collision_display_template != nullptr && Utils::isDefinitelyLessThan<double>(hit.ImpactNormal.Z, 0.0f)) {
         UParticleSystemComponent* particles = UGameplayStatics::SpawnEmitterAtLocation(params_.pawn->GetWorld(),
                                                                                        params_.collision_display_template,
                                                                                        FTransform(hit_location),
@@ -293,12 +293,12 @@ bool PawnSimApi::testLineOfSightToPoint(const msr::airlib::GeoPoint& lla) const
             if (hit) {
                 // No LOS, so draw red line
                 FLinearColor color{ 1.0f, 0, 0, 0.4f };
-                params_.pawn->GetWorld()->LineBatcher->DrawLine(params_.pawn->GetActorLocation(), target_location, color, SDPG_World, 10, -1);
+                DrawDebugLine(params_.pawn->GetWorld(), params_.pawn->GetActorLocation(), target_location, color.ToFColor(false), true, -1.0f, SDPG_World, 10.0f);
             }
             else {
                 // Yes LOS, so draw green line
                 FLinearColor color{ 0, 1.0f, 0, 0.4f };
-                params_.pawn->GetWorld()->LineBatcher->DrawLine(params_.pawn->GetActorLocation(), target_location, color, SDPG_World, 10, -1);
+                DrawDebugLine(params_.pawn->GetWorld(), params_.pawn->GetActorLocation(), target_location, color.ToFColor(false), true, -1.0f, SDPG_World, 10.0f);
             }
         }
     },

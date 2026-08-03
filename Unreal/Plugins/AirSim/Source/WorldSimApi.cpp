@@ -66,7 +66,7 @@ bool WorldSimApi::destroyObject(const std::string& object_name)
         AActor* actor = UAirBlueprintLib::FindActor<AActor>(simmode_, FString(object_name.c_str()));
         if (actor) {
             actor->Destroy();
-            result = actor->IsPendingKill();
+            result = !IsValid(actor);
         }
         if (result)
             simmode_->scene_object_map.Remove(FString(object_name.c_str()));
@@ -775,7 +775,7 @@ bool WorldSimApi::testLineOfSightBetweenPoints(const msr::airlib::GeoPoint& lla1
                 color = FLinearColor{ 0, 1.0f, 0, 0.4f };
             }
 
-            simmode_->GetWorld()->PersistentLineBatcher->DrawLine(point1, point2, color, SDPG_World, 4, 999999);
+            DrawDebugLine(simmode_->GetWorld(), point1, point2, color.ToFColor(false), true, 999999.0f, SDPG_World, 4.0f);
         }
     },
                                              true);
@@ -1040,7 +1040,7 @@ std::vector<msr::airlib::DetectionInfo> WorldSimApi::getDetections(ImageCaptureB
 
             Vector3r nedWrtOrigin = ned_transform.toGlobalNed(detections[i].Actor->GetActorLocation());
             result[i].geo_point = msr::airlib::EarthUtils::nedToGeodetic(nedWrtOrigin,
-                                                                         AirSimSettings::singleton().origin_geopoint);
+                                                                         msr::airlib::AirSimSettings::singleton().origin_geopoint);
 
             result[i].box2D.min = Vector2r(detections[i].Box2D.Min.X, detections[i].Box2D.Min.Y);
             result[i].box2D.max = Vector2r(detections[i].Box2D.Max.X, detections[i].Box2D.Max.Y);

@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include <string>
 #include "Components/SceneComponent.h"
 #include "ObjectFilter.h"
 #include "DetectionComponent.generated.h"
