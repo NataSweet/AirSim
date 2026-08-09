@@ -27,6 +27,22 @@ example, from PowerShell:
 cmd.exe /d /c 'call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat" && call build.cmd --no-full-poly-car'
 ```
 
+### Optional SUV content
+
+`--no-full-poly-car` deliberately skips AirSim's optional high-poly SUV asset
+archive. The Blocks `FlyingExampleMap` references materials from that archive,
+so opening this map without it produces missing-package errors and fallback or
+incorrect vehicle texturing. To download and deploy the SUV assets, rerun the
+same command **without** `--no-full-poly-car`:
+
+```powershell
+cmd.exe /d /c 'call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat" && call build.cmd'
+```
+
+The assets are build-time downloaded content, not a source change to commit.
+They must exist both under `Unreal/Plugins/AirSim/Content/VehicleAdv/SUV` and
+under the deployed Blocks plugin before Unreal indexes the map.
+
 Then compile the project:
 
 ```powershell
@@ -99,6 +115,27 @@ The successful UE command reported `Result: Succeeded` and generated:
   not prevent the build.
 - Several existing floating-point literals produce double-to-float warnings.
   They did not prevent the build.
+
+## Runtime fixes discovered after the first editor launch
+
+- `AAirSimCameraDirector::EndPlay` must call `Super::EndPlay(EndPlayReason)`.
+  Without it, UE 5.8 reports an ensure failure when destroying the camera
+  director: `EndPlay on CameraDirector failed`.
+- `APIPCamera::EndPlay` must also call `Super::EndPlay(EndPlayReason)`. The
+  camera director spawns an `APIPCamera` named `ExternalCamera`; without the
+  call UE 5.8 reports `EndPlay on ExternalCamera failed` when ending Play.
+- `OpticalFlowMaterial` and `OpticalFlowRGBMaterial` contain Custom HLSL. The
+  UE 4.25 code used `View.PrevViewProj`; it was migrated to
+  `ResolvedView.RelativeWorldToClip` and `ResolvedView.ClipToPrevClip` for
+  UE 5.8. `ResolvedView` is required because Custom material expressions no
+  longer expose the old `View` identifier. Without this change, both
+  materials fail to compile for `PCD3D_SM5` and UE falls back to the default
+  material.
+- The first build intentionally used `--no-full-poly-car`; the official
+  `car_assets.zip` was subsequently restored and its `VehicleAdv/SUV` folder
+  deployed to Blocks. This supplies the materials referenced by
+  `FlyingExampleMap` (including glass, metal, leather, reflector, plastic,
+  and caliper materials).
 
 ## Follow-up runtime checks
 

@@ -202,6 +202,8 @@ void AAirSimCameraDirector::EndPlay(const EEndPlayReason::Type EndPlayReason)
     manual_pose_controller_ = nullptr;
     SpringArm = nullptr;
     ExternalCamera = nullptr;
+
+    Super::EndPlay(EndPlayReason);
 }
 
 APIPCamera* AAirSimCameraDirector::getFpvCamera() const
