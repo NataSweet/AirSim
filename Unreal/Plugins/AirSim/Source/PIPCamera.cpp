@@ -758,7 +758,9 @@ void APIPCamera::setFocusAperture(float focus_aperture)
 
 void APIPCamera::enableFocusPlane(bool enable)
 {
+#if WITH_EDITORONLY_DATA
     camera_->FocusSettings.bDrawDebugFocusPlane = enable;
+#endif
 }
 
 std::string APIPCamera::getCurrentFieldOfView() const

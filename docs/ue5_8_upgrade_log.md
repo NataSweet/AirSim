@@ -148,3 +148,21 @@ release-ready, open Blocks in UE 5.8 and verify:
    under Chaos.
 4. Camera capture, segmentation, RPC connectivity, and the settings-based
    vehicle modes work in Play In Editor.
+
+## Packaging compatibility follow-up
+
+- `FCameraFocusSettings::bDrawDebugFocusPlane` is editor-only in UE 5.8.
+  `APIPCamera::enableFocusPlane` is therefore compiled only when editor-only
+  data is available. The focus-plane overlay is a debugging aid and has no
+  packaged-game equivalent.
+- Added a value constructor to `FDetectionInfo`. This explicitly initializes
+  its reflected actor pointer, 2D/3D bounds, and transform, satisfying UE
+  reflection validation during cooking.
+- Assigned the camera director's SpringArm as its native root component,
+  removing UE's arbitrary-root warning for `BP_CameraDirector`.
+- Replaced deprecated skeletal-mesh accessors, widget removal, and the two
+  MSVC `swscanf` calls with their current UE/MSVC equivalents.
+- Updated Blocks' default game mode to the existing
+  `/Script/AirSim.AirSimGameMode`, and raised the obsolete `IOS_11` enum value
+  to UE 5.8's supported `IOS_15`. These config changes remove load-time
+  errors; they do not add iOS to the Windows-only package target.
