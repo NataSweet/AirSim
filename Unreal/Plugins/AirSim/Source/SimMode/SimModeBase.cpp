@@ -1,4 +1,5 @@
 #include "SimModeBase.h"
+#include "RenderRequest.h"
 #include "Recording/RecordingThread.h"
 #include "Misc/MessageDialog.h"
 #include "Misc/EngineVersion.h"
@@ -191,6 +192,7 @@ void ASimModeBase::setStencilIDs()
 
 void ASimModeBase::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+    stopApiServer();
     FRecordingThread::stopRecording();
     FRecordingThread::killRecording();
     world_sim_api_.reset();
@@ -555,6 +557,7 @@ void ASimModeBase::startApiServer()
 }
 void ASimModeBase::stopApiServer()
 {
+    RenderRequest::Shutdown();
     if (api_server_ != nullptr) {
         api_server_->stop();
         api_server_.reset(nullptr);

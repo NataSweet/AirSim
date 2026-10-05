@@ -33,6 +33,7 @@ void ASimModeWorldBase::registerPhysicsBody(msr::airlib::VehicleSimApiBase* phys
 
 void ASimModeWorldBase::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+    stopApiServer();
     //remove everything that we created in BeginPlay
     physics_world_.reset();
 

@@ -6,9 +6,15 @@
 
 #include "AirBlueprintLib.h"
 #include "Async/Async.h"
+#include "RenderingThread.h"
+#include <algorithm>
+
+std::mutex RenderRequest::pending_mutex_;
+bool RenderRequest::shutting_down_ = false;
+std::vector<std::weak_ptr<RenderRequest>> RenderRequest::pending_requests_;
 
 RenderRequest::RenderRequest(UGameViewportClient* game_viewport, std::function<void()>&& query_camera_pose_cb)
-    : params_(nullptr), results_(nullptr), req_size_(0), wait_signal_(new msr::airlib::WorkerThreadSignal), game_viewport_(game_viewport), query_camera_pose_cb_(std::move(query_camera_pose_cb))
+    : req_size_(0), wait_signal_(new msr::airlib::WorkerThreadSignal), game_viewport_(game_viewport), query_camera_pose_cb_(std::move(query_camera_pose_cb))
 {
 }
 
@@ -16,10 +22,55 @@ RenderRequest::~RenderRequest()
 {
 }
 
+void RenderRequest::BeginPlay()
+{
+    check(IsInGameThread());
+    std::lock_guard<std::mutex> lock(pending_mutex_);
+    shutting_down_ = false;
+}
+
+void RenderRequest::Shutdown()
+{
+    check(IsInGameThread());
+    std::vector<std::shared_ptr<RenderRequest>> pending;
+    {
+        std::lock_guard<std::mutex> lock(pending_mutex_);
+        if (shutting_down_)
+            return;
+        shutting_down_ = true;
+        for (auto& weak : pending_requests_) {
+            if (auto request = weak.lock()) {
+                request->cancelled_ = true;
+                pending.push_back(std::move(request));
+            }
+        }
+        pending_requests_.clear();
+    }
+
+    // These delegates and queued game-thread tasks may reference the caller's
+    // camera/response data. Prevent them from running before waking the caller.
+    for (auto it = pending.rbegin(); it != pending.rend(); ++it) {
+        auto& request = *it;
+        if (request->end_draw_handle_.IsValid()) {
+            request->game_viewport_->OnEndDraw().Remove(request->end_draw_handle_);
+            request->end_draw_handle_.Reset();
+            request->game_viewport_->bDisableWorldRendering = request->saved_DisableWorldRendering_;
+        }
+    }
+    // A render command may already be reading into the result buffers.
+    // Keep the caller and its resources alive until those commands finish.
+    if (!pending.empty())
+        FlushRenderingCommands();
+    for (auto& request : pending)
+        request->wait_signal_->signal();
+}
+
 // read pixels from render target using render thread, then compress the result into PNG
 // argument on the thread that calls this method.
-void RenderRequest::getScreenshot(std::shared_ptr<RenderParams> params[], std::vector<std::shared_ptr<RenderResult>>& results, unsigned int req_size, bool use_safe_method)
+bool RenderRequest::getScreenshot(std::shared_ptr<RenderParams> params[], std::vector<std::shared_ptr<RenderResult>>& results, unsigned int req_size, bool use_safe_method)
 {
+    if (req_size == 0)
+        return true;
     //TODO: is below really needed?
     for (unsigned int i = 0; i < req_size; ++i) {
         results.push_back(std::make_shared<RenderResult>());
@@ -53,18 +104,32 @@ void RenderRequest::getScreenshot(std::shared_ptr<RenderParams> params[], std::v
     }
     else {
         //wait for render thread to pick up our task
-        params_ = params;
-        results_ = results.data();
+        params_.assign(params, params + req_size);
+        results_ = results;
         req_size_ = req_size;
 
+        auto self = shared_from_this();
+        {
+            std::lock_guard<std::mutex> lock(pending_mutex_);
+            if (shutting_down_)
+                return false;
+            pending_requests_.erase(std::remove_if(pending_requests_.begin(), pending_requests_.end(),
+                [](const std::weak_ptr<RenderRequest>& request) { return request.expired(); }), pending_requests_.end());
+            pending_requests_.push_back(self);
+        }
+
         // Queue up the task of querying camera pose in the game thread and synchronizing render thread with camera pose
-        AsyncTask(ENamedThreads::GameThread, [this]() {
+        AsyncTask(ENamedThreads::GameThread, [self, this]() {
             check(IsInGameThread());
+            if (cancelled_)
+                return;
 
             saved_DisableWorldRendering_ = game_viewport_->bDisableWorldRendering;
             game_viewport_->bDisableWorldRendering = 0;
-            end_draw_handle_ = game_viewport_->OnEndDraw().AddLambda([this] {
+            end_draw_handle_ = game_viewport_->OnEndDraw().AddLambda([self, this] {
                 check(IsInGameThread());
+                if (cancelled_)
+                    return;
 
                 // capture CameraPose for this frame
                 query_camera_pose_cb_();
@@ -72,17 +137,17 @@ void RenderRequest::getScreenshot(std::shared_ptr<RenderParams> params[], std::v
                 // The completion is called immeidately after GameThread sends the
                 // rendering commands to RenderThread. Hence, our ExecuteTask will
                 // execute *immediately* after RenderThread renders the scene!
-                RenderRequest* This = this;
                 ENQUEUE_RENDER_COMMAND(SceneDrawCompletion)
                 (
-                    [This](FRHICommandListImmediate& RHICmdList) {
-                        This->ExecuteTask();
+                    [self](FRHICommandListImmediate& RHICmdList) {
+                        self->ExecuteTask();
                     });
 
                 game_viewport_->bDisableWorldRendering = saved_DisableWorldRendering_;
 
                 assert(end_draw_handle_.IsValid());
                 game_viewport_->OnEndDraw().Remove(end_draw_handle_);
+                end_draw_handle_.Reset();
             });
 
             // while we're still on GameThread, enqueue request for capture the scene!
@@ -91,13 +156,11 @@ void RenderRequest::getScreenshot(std::shared_ptr<RenderParams> params[], std::v
             }
         });
 
-        // wait for this task to complete
-        while (!wait_signal_->waitFor(5)) {
-            // log a message and continue wait
-            // lamda function still references a few objects for which there is no refcount.
-            // Walking away will cause memory corruption, which is much more difficult to debug.
-            UE_LOG(LogTemp, Warning, TEXT("Failed: timeout waiting for screenshot"));
-        }
+        // Both successful readback and Shutdown release this wait. Shutdown
+        // drains render commands first, so the caller can safely destroy its data.
+        wait_signal_->wait();
+        if (cancelled_)
+            return false;
     }
 
     for (unsigned int i = 0; i < req_size; ++i) {
@@ -124,6 +187,7 @@ void RenderRequest::getScreenshot(std::shared_ptr<RenderParams> params[], std::v
             }
         }
     }
+    return true;
 }
 
 FReadSurfaceDataFlags RenderRequest::setupRenderResource(const FTextureRenderTargetResource* rt_resource, const RenderParams* params, RenderResult* result, FIntPoint& size)
@@ -139,7 +203,9 @@ FReadSurfaceDataFlags RenderRequest::setupRenderResource(const FTextureRenderTar
 
 void RenderRequest::ExecuteTask()
 {
-    if (params_ != nullptr && req_size_ > 0) {
+    if (cancelled_)
+        return; // Shutdown signals the waiter after draining render commands.
+    if (!params_.empty() && req_size_ > 0) {
         for (unsigned int i = 0; i < req_size_; ++i) {
             FRHICommandListImmediate& RHICmdList = GetImmediateCommandList_ForRenderCommand();
             auto rt_resource = params_[i]->render_target->GetRenderTargetResource();
@@ -173,8 +239,6 @@ void RenderRequest::ExecuteTask()
         }
 
         req_size_ = 0;
-        params_ = nullptr;
-        results_ = nullptr;
 
         wait_signal_->signal();
     }

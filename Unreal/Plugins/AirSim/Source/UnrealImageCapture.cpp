@@ -57,6 +57,11 @@ void UnrealImageCapture::getSceneCaptureImage(const std::vector<msr::airlib::Ima
 
         responses.push_back(ImageResponse());
         ImageResponse& response = responses.at(i);
+        // Also return well-defined metadata when shutdown cancels the readback.
+        response.camera_name = requests[i].camera_name;
+        response.image_type = requests[i].image_type;
+        response.pixels_as_float = requests[i].pixels_as_float;
+        response.compress = requests[i].compress;
 
         UTextureRenderTarget2D* textureTarget = nullptr;
         USceneCaptureComponent2D* capture = camera->getCaptureComponent(requests[i].image_type, false);
@@ -87,15 +92,18 @@ void UnrealImageCapture::getSceneCaptureImage(const std::vector<msr::airlib::Ima
             response.camera_orientation = camera_pose.orientation;
         }
     };
-    RenderRequest render_request{ gameViewport, std::move(query_camera_pose_cb) };
+    auto render_request = std::make_shared<RenderRequest>(gameViewport, std::move(query_camera_pose_cb));
 
-    render_request.getScreenshot(render_params.data(), render_results, render_params.size(), use_safe_method);
+    if (!render_request->getScreenshot(render_params.data(), render_results, render_params.size(), use_safe_method)) {
+        for (auto& response : responses)
+            response.message = "Image capture cancelled: AirSim is shutting down";
+        return;
+    }
 
     for (unsigned int i = 0; i < requests.size(); ++i) {
         const ImageRequest& request = requests.at(i);
         ImageResponse& response = responses.at(i);
 
-        response.camera_name = request.camera_name;
         response.time_stamp = render_results[i]->time_stamp;
         response.image_data_uint8 = std::vector<uint8_t>(render_results[i]->image_data_uint8.GetData(), render_results[i]->image_data_uint8.GetData() + render_results[i]->image_data_uint8.Num());
         response.image_data_float = std::vector<float>(render_results[i]->image_data_float.GetData(), render_results[i]->image_data_float.GetData() + render_results[i]->image_data_float.Num());
@@ -107,11 +115,8 @@ void UnrealImageCapture::getSceneCaptureImage(const std::vector<msr::airlib::Ima
             response.camera_position = pose.position;
             response.camera_orientation = pose.orientation;
         }
-        response.pixels_as_float = request.pixels_as_float;
-        response.compress = request.compress;
         response.width = render_results[i]->width;
         response.height = render_results[i]->height;
-        response.image_type = request.image_type;
     }
 }
 

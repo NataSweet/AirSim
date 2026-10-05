@@ -2,6 +2,7 @@
 #include "UObject/ConstructorHelpers.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "Misc/FileHelper.h"
+#include "RenderRequest.h"
 
 #include "Vehicles/Multirotor/SimModeWorldMultiRotor.h"
 #include "Vehicles/Car/SimModeCar.h"
@@ -22,6 +23,7 @@ void ASimHUD::BeginPlay()
 
     try {
         UAirBlueprintLib::OnBeginPlay();
+        RenderRequest::BeginPlay();
         initializeSettings();
         loadLevel();
 
@@ -51,6 +53,7 @@ void ASimHUD::Tick(float DeltaSeconds)
 
 void ASimHUD::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+    RenderRequest::Shutdown();
     if (simmode_)
         simmode_->stopApiServer();
 
